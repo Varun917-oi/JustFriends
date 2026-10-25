@@ -4,11 +4,6 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
-  experimental: {
-    serverActions: {
-      bodySizeLimit: "52mb",
-    },
-  },
   turbopack: {
     rules: {
       "*.css": {

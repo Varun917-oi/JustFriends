@@ -14,8 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Just Friends",
-  description: "Some moments pass. Some become a part of us.",
+  title: "Our Little Universe",
+  description: "A private little universe for two.",
+  robots: {
+    index: false,
+    follow: false,
+    noarchive: true,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -1,12 +1,13 @@
 import "server-only";
 
+import { requireAuthorizedUser } from "@/lib/auth";
 import type { AnimationPreset, Memory, MemoryMedia, SiteSettings } from "@/lib/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { animationPresets, formatMemoryDate } from "@/lib/memory-utils";
 
 export { animationPresets, formatMemoryDate };
 export const defaultSettings: SiteSettings = {
-  title: "Just Friends",
+  title: "Our Little Universe",
   subtitle: "Some moments pass. Some become a part of us.",
   closingLetter:
     "Thank you for being part of my favourite memories. Here's to all the little moments still waiting for us.",
@@ -29,7 +30,7 @@ type MemoryRow = {
   display_order: number;
   is_featured: boolean;
   status: Memory["status"];
-  created_by: string;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
   memory_media: Array<{
@@ -51,33 +52,29 @@ function throwIfError(error: { message: string } | null) {
   if (error) throw new Error(`Supabase request failed: ${error.message}`);
 }
 
-async function toMemory(row: MemoryRow, supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>): Promise<Memory> {
-  const media = await Promise.all(
-    [...(row.memory_media ?? [])]
-      .sort((a, b) => a.display_order - b.display_order)
-      .map(async (item): Promise<MemoryMedia> => {
-        const { data, error } = await supabase.storage
-          .from("memories")
-          .createSignedUrl(item.object_path, 60 * 60);
-        throwIfError(error);
-        if (!data?.signedUrl) throw new Error("Supabase did not return a signed media URL.");
+async function requireAuthorizedUserForPrivateData() {
+  const user = await requireAuthorizedUser();
+  if (!user) throw new Error("An authenticated account is required to access private memories.");
+  return user;
+}
 
-        return {
-          id: item.id,
-          memoryId: item.memory_id,
-          type: item.media_type,
-          url: data.signedUrl,
-          path: item.object_path,
-          order: item.display_order,
-          alt: item.alt,
-          caption: item.caption ?? undefined,
-          width: item.width ?? undefined,
-          height: item.height ?? undefined,
-          duration: item.duration ?? undefined,
-          createdAt: item.created_at,
-        };
-      }),
-  );
+function toMemory(row: MemoryRow): Memory {
+  const media = [...(row.memory_media ?? [])]
+    .sort((a, b) => a.display_order - b.display_order)
+    .map((item): MemoryMedia => ({
+      id: item.id,
+      memoryId: item.memory_id,
+      type: item.media_type,
+      url: `/media/${item.object_path.split("/").map(encodeURIComponent).join("/")}`,
+      path: item.object_path,
+      order: item.display_order,
+      alt: item.alt,
+      caption: item.caption ?? undefined,
+      width: item.width ?? undefined,
+      height: item.height ?? undefined,
+      duration: item.duration ?? undefined,
+      createdAt: item.created_at,
+    }));
 
   return {
     id: row.id,
@@ -96,7 +93,7 @@ async function toMemory(row: MemoryRow, supabase: Awaited<ReturnType<typeof crea
     display_order: row.display_order,
     is_featured: row.is_featured,
     status: row.status,
-    created_by: row.created_by,
+    created_by: row.created_by ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
     media,
@@ -104,6 +101,7 @@ async function toMemory(row: MemoryRow, supabase: Awaited<ReturnType<typeof crea
 }
 
 export async function readMemories(): Promise<Memory[]> {
+  await requireAuthorizedUserForPrivateData();
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("memories")
@@ -111,65 +109,11 @@ export async function readMemories(): Promise<Memory[]> {
     .order("display_order", { ascending: true })
     .order("created_at", { ascending: true });
   throwIfError(error);
-  return Promise.all(((data ?? []) as unknown as MemoryRow[]).map((row) => toMemory(row, supabase)));
-}
-
-export async function writeMemories(memories: Memory[]) {
-  if (!memories.length) return;
-  const supabase = await createSupabaseServerClient();
-  const memoryRows = memories.map((memory) => ({
-    id: memory.id,
-    title: memory.title,
-    slug: memory.slug,
-    event_description: memory.event_description,
-    memory_story: memory.memory_story,
-    feelings: memory.feelings,
-    personal_message: memory.personal_message || null,
-    memory_date: memory.memory_date || null,
-    date_is_approximate: memory.date_is_approximate,
-    location: memory.location || null,
-    category: memory.category || null,
-    tags: memory.tags,
-    animation_preset: memory.animation_preset,
-    display_order: memory.display_order,
-    is_featured: memory.is_featured,
-    status: memory.status,
-    created_by: memory.created_by,
-    created_at: memory.created_at,
-    updated_at: memory.updated_at,
-  }));
-  const { error } = await supabase.from("memories").upsert(memoryRows, { onConflict: "id" });
-  throwIfError(error);
-
-  const mediaRows = memories.flatMap((memory) =>
-    memory.media.map((media) => ({
-      id: media.id,
-      memory_id: memory.id,
-      object_path: media.path,
-      media_type: media.type,
-      display_order: media.order,
-      caption: media.caption || null,
-      alt: media.alt,
-      width: media.width ?? null,
-      height: media.height ?? null,
-      duration: media.duration ?? null,
-    })),
-  );
-  if (mediaRows.length) {
-    const { error: mediaError } = await supabase
-      .from("memory_media")
-      .upsert(mediaRows, { onConflict: "id" });
-    throwIfError(mediaError);
-  }
-}
-
-export async function deleteMemory(id: string) {
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("memories").delete().eq("id", id);
-  throwIfError(error);
+  return ((data ?? []) as unknown as MemoryRow[]).map(toMemory);
 }
 
 export async function readSiteSettings(): Promise<SiteSettings> {
+  await requireAuthorizedUserForPrivateData();
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("site_settings")
@@ -185,18 +129,6 @@ export async function readSiteSettings(): Promise<SiteSettings> {
   };
 }
 
-export async function writeSiteSettings(settings: SiteSettings) {
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("site_settings").upsert({
-    singleton: true,
-    title: settings.title,
-    subtitle: settings.subtitle,
-    closing_letter: settings.closingLetter,
-    updated_at: new Date().toISOString(),
-  });
-  throwIfError(error);
-}
-
 export async function getPublishedMemories() {
   const memories = await readMemories();
   return memories.filter((memory) => memory.status === "published");
@@ -205,39 +137,4 @@ export async function getPublishedMemories() {
 export async function getMemoryBySlug(slug: string) {
   const memories = await readMemories();
   return memories.find((memory) => memory.slug === slug) ?? null;
-}
-
-export async function getMemoryById(id: string) {
-  const memories = await readMemories();
-  return memories.find((memory) => memory.id === id) ?? null;
-}
-
-export function slugify(input: string) {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 80);
-}
-
-export async function createUniqueSlug(title: string, excludeId?: string) {
-  const base = slugify(title) || "memory";
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.from("memories").select("id, slug");
-  throwIfError(error);
-  const existing = new Set(
-    (data ?? [])
-      .filter((memory) => memory.id !== excludeId)
-      .map((memory) => memory.slug),
-  );
-
-  let candidate = base;
-  let suffix = 1;
-  while (existing.has(candidate)) {
-    candidate = `${base}-${suffix}`;
-    suffix += 1;
-  }
-  return candidate;
 }

@@ -52,7 +52,7 @@ create index memory_media_memory_order_idx on public.memory_media (memory_id, di
 
 create table public.site_settings (
   singleton boolean primary key default true check (singleton),
-  title text not null default 'Just Friends' check (char_length(title) between 1 and 100),
+  title text not null default 'Our Little Universe' check (char_length(title) between 1 and 100),
   subtitle text not null default 'Some moments pass. Some become a part of us.' check (char_length(subtitle) between 1 and 180),
   closing_letter text not null default 'Thank you for being part of my favourite memories. Here''s to all the little moments still waiting for us.' check (char_length(closing_letter) between 1 and 5000),
   updated_at timestamptz not null default now()

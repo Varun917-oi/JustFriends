@@ -43,11 +43,13 @@ if (listError) throw new Error(`Could not list existing Supabase accounts: ${lis
 for (const account of accounts) {
   let authUser = users.users.find((user) => user.email === account.email);
   if (authUser) {
+    const appMetadata = { ...authUser.app_metadata };
+    delete appMetadata.role;
     const { data, error } = await supabase.auth.admin.updateUserById(authUser.id, {
-      app_metadata: { ...authUser.app_metadata, role: "admin" },
+      app_metadata: appMetadata,
       user_metadata: { ...authUser.user_metadata, username: account.username },
     });
-    if (error) throw new Error(`Could not update the ${account.username} account role: ${error.message}`);
+    if (error) throw new Error(`Could not update the ${account.username} account metadata: ${error.message}`);
     authUser = data.user;
   } else {
     if (!account.password || account.password.length < 12 || account.password.length > 256) {
@@ -58,7 +60,6 @@ for (const account of accounts) {
       email: account.email,
       password: account.password,
       email_confirm: true,
-      app_metadata: { role: "admin" },
       user_metadata: { username: account.username },
     });
     if (error) throw new Error(`Could not provision ${account.username}: ${error.message}`);
@@ -69,12 +70,11 @@ for (const account of accounts) {
     {
       id: authUser.id,
       username: account.username,
-      role: "admin",
     },
     { onConflict: "id" },
   );
-  if (profileError) throw new Error(`Could not save the ${account.username} admin profile: ${profileError.message}`);
-  console.log(`Provisioned ${account.username} as admin.`);
+  if (profileError) throw new Error(`Could not save the ${account.username} account profile: ${profileError.message}`);
+  console.log(`Provisioned the ${account.username} account.`);
 }
 
-console.log("Both administrator accounts are ready. Initial passwords were not printed.");
+console.log("Both authorized accounts are ready. Initial passwords were not printed.");

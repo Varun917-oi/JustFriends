@@ -8,8 +8,6 @@ export type AnimationPreset =
   | "parallax-journey"
   | "minimal-reveal";
 
-export type UserRole = "admin";
-
 export interface MemoryMedia {
   id: string;
   memoryId: string;
@@ -23,12 +21,6 @@ export interface MemoryMedia {
   height?: number;
   duration?: number;
   createdAt: string;
-}
-
-export interface UploadedMediaInput {
-  objectPath: string;
-  mimeType: string;
-  size: number;
 }
 
 export interface Memory {
@@ -48,7 +40,7 @@ export interface Memory {
   display_order: number;
   is_featured: boolean;
   status: MemoryStatus;
-  created_by: string;
+  created_by?: string;
   created_at: string;
   updated_at: string;
   media: MemoryMedia[];
@@ -62,5 +54,4 @@ export interface SiteSettings {
 
 export interface AuthUser {
   username: string;
-  role: UserRole;
 }

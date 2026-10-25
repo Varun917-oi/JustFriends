@@ -15,27 +15,34 @@ export function emailForUsername(username: string) {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const supabase = await createSupabaseServerClient();
   const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError && authData.user) {
+  if (
+    authError &&
+    authError.name !== "AuthSessionMissingError" &&
+    authError.status !== 401
+  ) {
     throw new Error(`Supabase authentication failed: ${authError.message}`);
   }
   if (!authData.user) return null;
 
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("username, role")
+    .select("username")
     .eq("id", authData.user.id)
     .maybeSingle();
   if (error) throw new Error(`Could not load the signed-in account profile: ${error.message}`);
-  if (!profile || profile.role !== "admin" || emailForUsername(profile.username) !== authData.user.email) {
+  if (
+    !profile ||
+    emailForUsername(profile.username) !== authData.user.email?.trim().toLowerCase()
+  ) {
     return null;
   }
 
-  return { username: profile.username, role: "admin" };
+  return { username: profile.username };
 }
 
-export async function requireAdmin() {
+export async function requireAuthorizedUser() {
   const user = await getCurrentUser();
-  return user?.role === "admin" ? user : null;
+  return user;
 }
 
 export async function clearSessionCookie() {

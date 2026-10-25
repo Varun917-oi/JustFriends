@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:provision": "node --env-file=.env.local scripts/provision-admins.mjs"
+    "db:provision": "node --env-file=.env.local scripts/provision-admins.mjs",
+    "memory:import": "node --env-file=.env.local scripts/import-memory.mjs",
+    "memories:import": "node --env-file=.env.local scripts/import-memory.mjs",
+    "memories:validate": "node scripts/validate-memory.mjs",
+    "test:import": "node --test scripts/import-memory.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -16,7 +20,8 @@
     "gsap": "^3.15.0",
     "next": "16.4.3",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

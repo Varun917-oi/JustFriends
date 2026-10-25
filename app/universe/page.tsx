@@ -2,18 +2,17 @@ import Link from "next/link";
 import { connection } from "next/server";
 
 import { MemoryMedia, SiteNav } from "@/components/site";
-import { getCurrentUser } from "@/lib/auth";
 import { getPublishedMemories } from "@/lib/data";
 
 export const instant = false;
 
 export default async function UniversePage() {
   await connection();
-  const [memories, user] = await Promise.all([getPublishedMemories(), getCurrentUser()]);
+  const memories = await getPublishedMemories();
 
   return (
     <main className="universe-page">
-      <SiteNav user={user} />
+      <SiteNav />
       <section className="universe-intro">
         <p className="eyebrow">A DIFFERENT WAY TO WANDER</p>
         <h1>Memory universe</h1>

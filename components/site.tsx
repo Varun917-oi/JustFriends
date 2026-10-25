@@ -3,27 +3,22 @@ import Link from "next/link";
 
 import { logoutAction } from "@/app/actions";
 import { formatMemoryDate } from "@/lib/memory-utils";
-import type { AuthUser, Memory } from "@/lib/types";
-import { FormError } from "@/components/form-error";
+import { ScrollReveal } from "@/components/scroll-reveal";
+import type { Memory } from "@/lib/types";
 
-export function SiteNav({ user }: { user?: AuthUser | null }) {
+export function SiteNav() {
   return (
     <header className="site-nav">
-      <Link className="wordmark" href="/" aria-label="Just Friends home">
+      <Link className="wordmark" href="/" aria-label="Our Little Universe home">
         <span className="wordmark-mark" aria-hidden="true">✳</span>
-        <span>just friends</span>
+        <span>our little universe</span>
       </Link>
       <nav aria-label="Main navigation">
         <Link href="/memories">Our story</Link>
         <Link href="/universe">Memory universe</Link>
-        {user?.role === "admin" ? <Link href="/admin">Studio</Link> : null}
-        {user ? (
-          <form action={logoutAction}>
-            <button className="nav-quiet-button" type="submit">Log out</button>
-          </form>
-        ) : (
-          <Link className="nav-login" href="/login">Log in <span aria-hidden="true">↗</span></Link>
-        )}
+        <form action={logoutAction}>
+          <button className="nav-quiet-button" type="submit">Log out</button>
+        </form>
       </nav>
     </header>
   );
@@ -81,20 +76,46 @@ export function MemoryCard({ memory, index = 0 }: { memory: Memory; index?: numb
   );
 }
 
-export function AdminNav({ active }: { active: "overview" | "settings" }) {
+export function PhotoWall({ memories }: { memories: Memory[] }) {
+  const photos = memories.flatMap((memory) =>
+    memory.media
+      .filter((media) => media.type === "image")
+      .map((media) => ({ memory, media })),
+  ).slice(0, 16);
+
+  if (!photos.length) return null;
+
   return (
-    <aside className="admin-sidebar">
-      <Link className="admin-back" href="/">← Back to the universe</Link>
-      <p className="eyebrow">THE MEMORY STUDIO</p>
-      <h2>Make room<br />for more.</h2>
-      <nav aria-label="Studio navigation">
-        <Link className={active === "overview" ? "active" : ""} href="/admin">Overview <span>↗</span></Link>
-        <Link href="/admin/memories/new">Create a memory <span>＋</span></Link>
-        <Link className={active === "settings" ? "active" : ""} href="/admin/settings">Story settings <span>↗</span></Link>
-      </nav>
-      <div className="sidebar-note">Every little moment<br />deserves a place.</div>
-    </aside>
+    <section className="snapshot-section page-wrap" aria-label="Photographs from published memories">
+      <div className="section-heading snapshot-heading">
+        <div>
+          <p className="eyebrow">LITTLE MOMENTS, UP CLOSE</p>
+          <h2>A few snapshots<br />of us.</h2>
+        </div>
+        <Link className="text-link" href="/memories">See every memory <span aria-hidden="true">↗</span></Link>
+      </div>
+      <div className="snapshot-grid">
+        {photos.map(({ memory, media }, index) => (
+          <ScrollReveal key={media.id}>
+            <figure className={`snapshot-card snapshot-card-${index % 6}`}>
+              <Link href={`/memories/${memory.slug}`} aria-label={`Open memory: ${memory.title}`}>
+                <Image
+                  src={media.url}
+                  alt={media.alt}
+                  width={media.width || 1200}
+                  height={media.height || 900}
+                  unoptimized
+                  loading="lazy"
+                />
+                <figcaption>
+                  <span>{media.caption || memory.title}</span>
+                  <span aria-hidden="true">↗</span>
+                </figcaption>
+              </Link>
+            </figure>
+          </ScrollReveal>
+        ))}
+      </div>
+    </section>
   );
 }
-
-export { FormError };

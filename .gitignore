@@ -22,6 +22,7 @@
 /data/
 /data/accounts.json
 /data/accounts.*.tmp
+/memory-imports/
 .env.local
 
 # misc

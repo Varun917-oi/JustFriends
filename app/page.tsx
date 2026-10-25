@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { connection } from "next/server";
 
-import { MemoryCard, SiteNav } from "@/components/site";
+import { ScrollReveal } from "@/components/scroll-reveal";
+import { MemoryCard, PhotoWall, SiteNav } from "@/components/site";
 import { defaultSettings, getPublishedMemories, readSiteSettings } from "@/lib/data";
 
 export const instant = false;
@@ -9,8 +10,7 @@ export const instant = false;
 export default async function Home() {
   await connection();
   const [settings, memories] = await Promise.all([readSiteSettings(), getPublishedMemories()]);
-  const featured = memories.filter((memory) => memory.is_featured).slice(0, 3);
-  const chapters = featured.length ? featured : memories.slice(0, 3);
+  const chapters = memories;
 
   return (
     <main className="home-shell">
@@ -39,22 +39,27 @@ export default async function Home() {
         </a>
       </section>
 
+      <PhotoWall memories={memories} />
+
       <section id="chapters" className="home-chapters page-wrap">
         <div className="section-heading">
-          <div><p className="eyebrow">A FEW LITTLE CONSTELLATIONS</p><h2>Every story starts<br />somewhere.</h2></div>
+          <div><p className="eyebrow">CHAPTERS OF US</p><h2>Every story starts<br />somewhere.</h2></div>
           <Link className="text-link" href="/memories">Explore the whole story <span aria-hidden="true">↗</span></Link>
         </div>
         {chapters.length ? (
           <div className="memory-grid">
-            {chapters.map((memory, index) => <MemoryCard key={memory.id} memory={memory} index={index} />)}
+            {chapters.map((memory, index) => (
+              <ScrollReveal key={memory.id}>
+                <MemoryCard memory={memory} index={index} />
+              </ScrollReveal>
+            ))}
           </div>
         ) : (
           <div className="empty-universe">
             <span className="empty-orbit" aria-hidden="true">✧</span>
             <p className="eyebrow">THE SKY IS STILL OPEN</p>
-            <h3>Your first memory is waiting to be added.</h3>
-            <p>When a memory is saved and published, its own little chapter will appear here.</p>
-            <Link className="text-link" href="/login">Enter the memory studio <span aria-hidden="true">↗</span></Link>
+            <h3>Your story is waiting to be gathered.</h3>
+            <p>Your memories will find their place here as they are brought into the collection.</p>
           </div>
         )}
       </section>
@@ -62,7 +67,7 @@ export default async function Home() {
       <footer className="site-footer page-wrap">
         <span>OUR LITTLE UNIVERSE <span aria-hidden="true">✳</span></span>
         <span>Some moments find their way back to us.</span>
-        <Link href="/login">A private little space</Link>
+        <Link href="/memories">A private little space</Link>
       </footer>
     </main>
   );
