@@ -25,6 +25,12 @@ export interface MemoryMedia {
   createdAt: string;
 }
 
+export interface UploadedMediaInput {
+  objectPath: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface Memory {
   id: string;
   title: string;

@@ -43,7 +43,9 @@ export default async function SettingsPage({ searchParams }: {
                 ? "Choose a new password between 12 and 256 characters."
                 : query.passwordError === "mismatch"
                   ? "The new password and confirmation do not match."
-                  : "The current password could not be verified."}
+                  : query.passwordError === "update"
+                    ? "The password could not be updated by Supabase. Try again."
+                    : "The current password could not be verified."}
             </p>
           ) : null}
           <form className="settings-form password-settings-form" action={changePasswordAction}>

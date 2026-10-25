@@ -1,15 +1,15 @@
+import "server-only";
+
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
 
-import type { MemoryMedia } from "@/lib/types";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { hasValidMediaSignature, isSupportedMediaType } from "@/lib/media-validation";
+import type { MemoryMedia, UploadedMediaInput } from "@/lib/types";
 
-const uploadDirectory = path.join(process.cwd(), "data", "uploads");
 const maxFileSize = 15 * 1024 * 1024;
 const maxTotalSize = 50 * 1024 * 1024;
 const maxFiles = 8;
-
-const supportedTypes: Record<string, { extension: string; type: MemoryMedia["type"] }> = {
+const mimeDetails: Record<string, { extension: string; type: MemoryMedia["type"] }> = {
   "image/jpeg": { extension: "jpg", type: "image" },
   "image/png": { extension: "png", type: "image" },
   "image/webp": { extension: "webp", type: "image" },
@@ -17,87 +17,78 @@ const supportedTypes: Record<string, { extension: string; type: MemoryMedia["typ
   "video/mp4": { extension: "mp4", type: "video" },
   "video/webm": { extension: "webm", type: "video" },
 };
+const mediaPathPattern = /^([0-9a-f-]{36})\/([0-9a-f-]{36})\.(jpg|png|webp|gif|mp4|webm)$/i;
 
-export async function saveMemoryUploads(
+export async function registerUploadedMedia(
   memoryId: string,
   title: string,
-  files: File[],
+  files: UploadedMediaInput[],
   firstOrder = 1,
 ): Promise<MemoryMedia[]> {
-  if (files.length > maxFiles) {
-    throw new Error(`Choose no more than ${maxFiles} files.`);
-  }
-  if (files.some((file) => file.size > maxFileSize)) {
-    throw new Error("Each file must be 15 MB or smaller.");
+  if (files.length > maxFiles) throw new Error(`Choose no more than ${maxFiles} files.`);
+  if (files.some((file) => file.size > maxFileSize || file.size <= 0)) {
+    throw new Error("Each file must be between 1 byte and 15 MB.");
   }
   if (files.reduce((total, file) => total + file.size, 0) > maxTotalSize) {
     throw new Error("The combined upload must be 50 MB or smaller.");
   }
+  if (files.some((file) => !isSupportedMediaType(file.mimeType))) {
+    throw new Error("Use JPG, PNG, WebP, GIF, MP4, or WebM files.");
+  }
 
-  const fileTypes = files.map((file) => {
-    const type = supportedTypes[file.type];
-    if (!type) throw new Error("Use JPG, PNG, WebP, GIF, MP4, or WebM files.");
-    return type;
-  });
+  const supabase = await createSupabaseServerClient();
+  const verifiedMedia: MemoryMedia[] = [];
+  const validPaths: string[] = [];
+  for (const file of files) {
+    const match = mediaPathPattern.exec(file.objectPath);
+    const details = mimeDetails[file.mimeType];
+    if (!match || match[1].toLowerCase() !== memoryId.toLowerCase() || match[3].toLowerCase() !== details.extension) {
+      throw new Error("An uploaded media reference is invalid.");
+    }
+    validPaths.push(file.objectPath);
+  }
 
-  await fs.mkdir(uploadDirectory, { recursive: true });
-  const savedPaths: string[] = [];
   try {
-    const media: MemoryMedia[] = [];
     for (const [index, file] of files.entries()) {
-      const fileType = fileTypes[index];
-      const bytes = Buffer.from(await file.arrayBuffer());
-      if (!hasValidSignature(file.type, bytes)) {
-        throw new Error(`${file.name || "A file"} does not match its declared media type.`);
+      const { data, error } = await supabase.storage.from("memories").download(file.objectPath);
+      if (error) throw new Error(`Could not verify uploaded media: ${error.message}`);
+      const bytes = new Uint8Array(await data.arrayBuffer());
+      if (bytes.byteLength !== file.size || !hasValidMediaSignature(file.mimeType, bytes)) {
+        throw new Error("An uploaded file does not match its declared media type or size.");
       }
 
-      const filename = `${crypto.randomUUID()}.${fileType.extension}`;
-      const filePath = path.join(uploadDirectory, filename);
-      await fs.writeFile(filePath, bytes, { flag: "wx" });
-      savedPaths.push(filePath);
-
-      media.push({
+      verifiedMedia.push({
         id: crypto.randomUUID(),
         memoryId,
-        type: fileType.type,
-        url: `/media/${filename}`,
-        path: `/media/${filename}`,
+        type: mimeDetails[file.mimeType].type,
+        url: "",
+        path: file.objectPath,
         order: firstOrder + index,
         alt: title,
         createdAt: new Date().toISOString(),
       });
     }
-    return media;
   } catch (error) {
-    await Promise.all(savedPaths.map((filePath) => fs.unlink(filePath).catch(() => undefined)));
+    const { error: cleanupError } = await supabase.storage.from("memories").remove(validPaths);
+    if (cleanupError) {
+      throw new AggregateError(
+        [error, new Error(`Invalid upload cleanup failed: ${cleanupError.message}`)],
+        "Media verification failed and cleanup was incomplete.",
+      );
+    }
     throw error;
   }
-}
-
-function hasValidSignature(mimeType: string, bytes: Buffer) {
-  if (mimeType === "image/jpeg") return bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (mimeType === "image/png") return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  if (mimeType === "image/gif") return bytes.subarray(0, 6).toString("ascii").match(/^GIF8[79]a$/) !== null;
-  if (mimeType === "image/webp") return bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
-  if (mimeType === "video/mp4") return bytes.toString("ascii", 4, 8) === "ftyp";
-  if (mimeType === "video/webm") return bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
-  return false;
+  return verifiedMedia;
 }
 
 export async function removeMemoryUploads(media: MemoryMedia[]) {
-  await Promise.all(
-    media.map(async (item) => {
-      if (!item.path.startsWith("/media/")) return;
-      const filename = item.path.slice("/media/".length);
-      if (!/^[0-9a-f-]+\.(jpg|png|webp|gif|mp4|webm)$/i.test(filename)) return;
-      await fs.unlink(path.join(uploadDirectory, filename)).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-      });
-    }),
-  );
-}
+  const paths = media.map((item) => item.path).filter((item) => {
+    const match = mediaPathPattern.exec(item);
+    return match !== null;
+  });
+  if (!paths.length) return;
 
-export function getUploadPath(filename: string) {
-  if (!/^[0-9a-f-]+\.(jpg|png|webp|gif|mp4|webm)$/i.test(filename)) return null;
-  return path.join(uploadDirectory, filename);
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.storage.from("memories").remove(paths);
+  if (error) throw new Error(`Could not remove stored media: ${error.message}`);
 }

@@ -1,8 +1,12 @@
+"use client";
+
+import { useRef, useState, useTransition, type FormEvent } from "react";
+
 import { createMemoryAction, updateMemoryAction } from "@/app/actions";
-import { animationPresets, formatMemoryDate } from "@/lib/data";
-import { MediaPicker } from "@/components/media-picker";
+import { FormError } from "@/components/form-error";
+import { MediaPicker, type MediaPickerHandle } from "@/components/media-picker";
+import { animationPresets, formatMemoryDate } from "@/lib/memory-utils";
 import type { Memory } from "@/lib/types";
-import { FormError } from "@/components/site";
 
 const presetNames: Record<string, string> = {
   "dreamy-fade": "Dreamy fade",
@@ -14,12 +18,39 @@ const presetNames: Record<string, string> = {
   "minimal-reveal": "Minimal reveal",
 };
 
-export function MemoryForm({ memory, error }: { memory?: Memory; error?: string }) {
+export function MemoryForm({ memory, memoryId, error }: { memoryId: string; memory?: Memory; error?: string }) {
   const action = memory ? updateMemoryAction : createMemoryAction;
+  const mediaPickerRef = useRef<MediaPickerHandle>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [submitError, setSubmitError] = useState("");
+
+  async function submitMemory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!formRef.current?.reportValidity()) return;
+
+    setSubmitError("");
+    let uploadedMedia;
+    try {
+      uploadedMedia = await mediaPickerRef.current?.upload(memoryId);
+    } catch (uploadError) {
+      setSubmitError(uploadError instanceof Error ? uploadError.message : "The media upload failed. Please retry.");
+      return;
+    }
+
+    const formData = new FormData(formRef.current);
+    formData.delete("media");
+    formData.set("uploadedMedia", JSON.stringify(uploadedMedia ?? []));
+    startTransition(() => action(formData));
+  }
+
   return (
-    <form className="memory-form" action={action}>
+    <form ref={formRef} className="memory-form" action={action} onSubmit={submitMemory}>
+      <input type="hidden" name="memoryId" value={memoryId} />
       {memory ? <input type="hidden" name="id" value={memory.id} /> : null}
       <FormError error={error} />
+      {submitError ? <p className="form-error" role="alert">{submitError}</p> : null}
 
       <section className="form-section">
         <p className="eyebrow">01 — THE MOMENT</p>
@@ -101,7 +132,11 @@ export function MemoryForm({ memory, error }: { memory?: Memory; error?: string 
       <section className="form-section">
         <p className="eyebrow">04 — YOUR PHOTOGRAPHS</p>
         <h2>Bring the moment back.</h2>
-        <MediaPicker existingCount={memory?.media.length} />
+        <MediaPicker
+          ref={mediaPickerRef}
+          existingCount={memory?.media.length}
+          onUploadingChange={setIsUploading}
+        />
       </section>
 
       <section className="form-section">
@@ -118,7 +153,10 @@ export function MemoryForm({ memory, error }: { memory?: Memory; error?: string 
 
       <div className="form-actions">
         <a className="button button-quiet" href="/admin">Cancel</a>
-        <button className="button button-primary" type="submit">{memory ? "Save changes" : "Save memory"} <span aria-hidden="true">↗</span></button>
+        <button className="button button-primary" type="submit" disabled={isUploading || isPending}>
+          {isUploading ? "Uploading media…" : isPending ? "Saving memory…" : memory ? "Save changes" : "Save memory"}
+          <span aria-hidden="true">↗</span>
+        </button>
       </div>
       {memory?.memory_date ? <p className="form-footnote">Currently dated {formatMemoryDate(memory.memory_date)}.</p> : null}
     </form>

@@ -1,14 +1,13 @@
 "use server";
 
-import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { changeAccountPassword } from "@/lib/account-store";
-import { clearSessionCookie, getCurrentUser, verifyPassword, writeSessionCookie } from "@/lib/auth";
-import { createUniqueSlug, readMemories, readSiteSettings, writeMemories, writeSiteSettings } from "@/lib/data";
-import { removeMemoryUploads, saveMemoryUploads } from "@/lib/media";
-import type { AnimationPreset, Memory, MemoryStatus } from "@/lib/types";
+import { clearSessionCookie, emailForUsername, getCurrentUser } from "@/lib/auth";
+import { createUniqueSlug, deleteMemory, readMemories, readSiteSettings, writeMemories, writeSiteSettings } from "@/lib/data";
+import { registerUploadedMedia, removeMemoryUploads } from "@/lib/media";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { AnimationPreset, Memory, MemoryStatus, UploadedMediaInput } from "@/lib/types";
 
 const animationPresets: AnimationPreset[] = [
   "dreamy-fade",
@@ -34,8 +33,31 @@ function getPreset(value: string): AnimationPreset {
     : "dreamy-fade";
 }
 
-function getFiles(formData: FormData) {
-  return formData.getAll("media").filter((item): item is File => item instanceof File && item.size > 0);
+function getUploadedMedia(formData: FormData, memoryId: string): UploadedMediaInput[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(String(formData.get("uploadedMedia") ?? "[]")) as unknown;
+  } catch {
+    throw new Error("The uploaded media list is invalid.");
+  }
+  if (!Array.isArray(payload) || payload.length > 8) throw new Error("The uploaded media list is invalid.");
+
+  return payload.map((item): UploadedMediaInput => {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      !("objectPath" in item) ||
+      !("mimeType" in item) ||
+      !("size" in item) ||
+      typeof item.objectPath !== "string" ||
+      typeof item.mimeType !== "string" ||
+      typeof item.size !== "number" ||
+      !item.objectPath.startsWith(`${memoryId}/`)
+    ) {
+      throw new Error("An uploaded media reference is invalid.");
+    }
+    return { objectPath: item.objectPath, mimeType: item.mimeType, size: item.size };
+  });
 }
 
 function validMemoryFields(formData: FormData) {
@@ -65,13 +87,19 @@ function validMemoryFields(formData: FormData) {
 export async function loginAction(formData: FormData) {
   const username = String(formData.get("username") ?? "");
   const password = String(formData.get("password") ?? "");
-
-  if (!await verifyPassword(username, password)) {
+  const email = emailForUsername(username);
+  if (!email || !password || password.length > 256) {
     redirect("/login?error=invalid");
   }
 
-  const role = "admin";
-  await writeSessionCookie({ username, role });
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) redirect("/login?error=invalid");
+  const user = await getCurrentUser();
+  if (!user) {
+    await supabase.auth.signOut();
+    redirect("/login?error=invalid");
+  }
   redirect("/admin");
 }
 
@@ -88,10 +116,11 @@ export async function createMemoryAction(formData: FormData) {
   if (!title || !validMemoryFields(formData)) redirect("/admin/memories/new?error=fields");
 
   const memories = await readMemories();
-  const id = crypto.randomUUID();
+  const id = field(formData, "memoryId");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) redirect("/admin/memories/new?error=fields");
   const now = new Date().toISOString();
   const date = field(formData, "memory_date");
-  const uploaded = await saveMemoryUploads(id, title, getFiles(formData));
+  const uploaded = await registerUploadedMedia(id, title, getUploadedMedia(formData, id));
   const memory: Memory = {
     id,
     title,
@@ -118,7 +147,18 @@ export async function createMemoryAction(formData: FormData) {
   try {
     await writeMemories([...memories, memory]);
   } catch (error) {
-    await removeMemoryUploads(uploaded);
+    const cleanupErrors: Error[] = [];
+    try {
+      await deleteMemory(memory.id);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)));
+    }
+    try {
+      await removeMemoryUploads(uploaded);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError instanceof Error ? cleanupError : new Error(String(cleanupError)));
+    }
+    if (cleanupErrors.length) throw new AggregateError([error, ...cleanupErrors], "Memory creation failed and cleanup was incomplete.");
     throw error;
   }
 
@@ -140,12 +180,17 @@ export async function updateMemoryAction(formData: FormData) {
   const title = field(formData, "title");
   if (!title || !validMemoryFields(formData)) redirect(`/admin/memories/${id}/edit?error=fields`);
 
-  const newFiles = getFiles(formData);
+  const newFiles = getUploadedMedia(formData, id);
   if (target.media.length + newFiles.length > 8) {
     redirect(`/admin/memories/${id}/edit?error=media-limit`);
   }
 
-  const uploaded = await saveMemoryUploads(id, title, newFiles, target.media.length + 1);
+  const uploaded = await registerUploadedMedia(
+    id,
+    title,
+    getUploadedMedia(formData, id),
+    target.media.length + 1,
+  );
   const previousTitle = target.title;
   const previousMedia = target.media;
   target.title = title;
@@ -190,7 +235,7 @@ export async function deleteMemoryAction(formData: FormData) {
   const target = memories.find((memory) => memory.id === id);
   if (!target) redirect("/admin");
 
-  await writeMemories(memories.filter((memory) => memory.id !== id));
+  await deleteMemory(id);
   await removeMemoryUploads(target.media);
   revalidatePath("/");
   revalidatePath("/memories");
@@ -225,17 +270,25 @@ export async function changePasswordAction(formData: FormData) {
   const currentPassword = String(formData.get("currentPassword") ?? "");
   const newPassword = String(formData.get("newPassword") ?? "");
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
+  const email = emailForUsername(user.username);
+  if (!email) redirect("/login");
 
-  if (newPassword.length < 12 || newPassword.length > 256) {
+  if (currentPassword.length > 256 || newPassword.length < 12 || newPassword.length > 256) {
     redirect("/admin/settings?passwordError=weak");
   }
   if (newPassword !== confirmPassword) {
     redirect("/admin/settings?passwordError=mismatch");
   }
-  if (!await changeAccountPassword(user.username, currentPassword, newPassword)) {
+  const supabase = await createSupabaseServerClient();
+  const { error: verifyError } = await supabase.auth.signInWithPassword({
+    email,
+    password: currentPassword,
+  });
+  if (verifyError) {
     redirect("/admin/settings?passwordError=current");
   }
 
-  await writeSessionCookie(user);
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) redirect("/admin/settings?passwordError=update");
   redirect("/admin/settings?password=updated");
 }

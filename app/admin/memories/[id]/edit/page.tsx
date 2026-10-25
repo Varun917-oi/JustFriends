@@ -22,7 +22,7 @@ export default async function EditMemoryPage({ params, searchParams }: {
     <main className="admin-form-page">
       <Link className="back-link" href="/admin">← Back to the studio</Link>
       <div className="form-page-heading"><p className="eyebrow">A LITTLE POLISH</p><h1>Edit memory</h1><p>Keep what matters. Change anything that needs a little more room.</p></div>
-      <MemoryForm memory={memory} error={query.error} />
+      <MemoryForm memory={memory} memoryId={memory.id} error={query.error} />
     </main>
   );
 }
