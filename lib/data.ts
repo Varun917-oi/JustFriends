@@ -6,7 +6,7 @@ import { animationPresets, formatMemoryDate } from "@/lib/memory-utils";
 
 export { animationPresets, formatMemoryDate };
 export const defaultSettings: SiteSettings = {
-  title: "Our Little Universe",
+  title: "Just Friends",
   subtitle: "Some moments pass. Some become a part of us.",
   closingLetter:
     "Thank you for being part of my favourite memories. Here's to all the little moments still waiting for us.",

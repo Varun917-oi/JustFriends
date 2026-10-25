@@ -1,4 +1,4 @@
-# Our Little Universe
+# Just Friends
 
 A private memory story built with Next.js 16, TypeScript, Supabase Auth, Postgres, and private Supabase Storage. Published memories have independent `/memories/[slug]` pages and appear in the scroll story and Memory Universe. Both Varun and Akrati are provisioned as administrators.
 

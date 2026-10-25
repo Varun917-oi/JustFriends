@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Our Little Universe",
+  title: "Just Friends",
   description: "Some moments pass. Some become a part of us.",
 };
 

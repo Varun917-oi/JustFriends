@@ -9,9 +9,9 @@ import { FormError } from "@/components/form-error";
 export function SiteNav({ user }: { user?: AuthUser | null }) {
   return (
     <header className="site-nav">
-      <Link className="wordmark" href="/" aria-label="Our Little Universe home">
+      <Link className="wordmark" href="/" aria-label="Just Friends home">
         <span className="wordmark-mark" aria-hidden="true">✳</span>
-        <span>our little universe</span>
+        <span>just friends</span>
       </Link>
       <nav aria-label="Main navigation">
         <Link href="/memories">Our story</Link>
